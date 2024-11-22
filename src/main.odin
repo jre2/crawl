@@ -31,6 +31,7 @@ Known Issues
 */
 
 DEBUG_MEMORY :: true
+DISABLE_TEXTURES :: false
 MAX_FLOOR_WIDTH :: 20
 MAX_FLOOR_HEIGHT :: 20
 MAX_NUM_LOCKS :: 256
@@ -244,28 +245,29 @@ load_map :: proc( debug:bool = false ) -> Error {
 }
 
 draw_quad :: proc( pos, size, rot:Vec3, rot_angle:f32, normal :Vec3, texture:rl.Texture, tint :rl.Color ) {
+    tint := rl.PINK if DISABLE_TEXTURES else tint
     gl.PushMatrix()
         gl.Translatef( pos.x, pos.y, pos.z )
         gl.Rotatef( rot_angle, rot.x, rot.y, rot.z )
         gl.Scalef( size.x, size.y, size.z )
 
-        gl.SetTexture( texture.id )
+        if !DISABLE_TEXTURES { gl.SetTexture( texture.id ) }
         gl.Begin( gl.QUADS )
             gl.Color4ub( tint.r, tint.g, tint.b, tint.a )
             gl.Normal3f( normal.x, normal.y, normal.z )
             // Determine which winding order to use based on normal
             if normal.z < 0 || normal.x < 0 {
                 // Clockwide winding order; lower left, lower right, upper right, upper left
-                gl.TexCoord2f( 0, 0 ); gl.Vertex3f( -0.5, -0.5, +0.5 )
-                gl.TexCoord2f( 1, 0 ); gl.Vertex3f( +0.5, -0.5, +0.5 )
-                gl.TexCoord2f( 1, 1 ); gl.Vertex3f( +0.5, +0.5, +0.5 )
-                gl.TexCoord2f( 0, 1 ); gl.Vertex3f( -0.5, +0.5, +0.5 )
+                gl.TexCoord2f( 0, 0 ); gl.Vertex3f( -0.5, -0.5, 0 )
+                gl.TexCoord2f( 1, 0 ); gl.Vertex3f( +0.5, -0.5, 0 )
+                gl.TexCoord2f( 1, 1 ); gl.Vertex3f( +0.5, +0.5, 0 )
+                gl.TexCoord2f( 0, 1 ); gl.Vertex3f( -0.5, +0.5, 0 )
             } else {
                 // Counter-clockwise winding order; bottom right, bottom left, top left, top right
-                gl.TexCoord2f( 1, 0 ); gl.Vertex3f( +0.5, -0.5, +0.5 )
-                gl.TexCoord2f( 0, 0 ); gl.Vertex3f( -0.5, -0.5, +0.5 )
-                gl.TexCoord2f( 0, 1 ); gl.Vertex3f( -0.5, +0.5, +0.5 )
-                gl.TexCoord2f( 1, 1 ); gl.Vertex3f( +0.5, +0.5, +0.5 )
+                gl.TexCoord2f( 1, 0 ); gl.Vertex3f( +0.5, -0.5, 0 )
+                gl.TexCoord2f( 0, 0 ); gl.Vertex3f( -0.5, -0.5, 0 )
+                gl.TexCoord2f( 0, 1 ); gl.Vertex3f( -0.5, +0.5, 0 )
+                gl.TexCoord2f( 1, 1 ); gl.Vertex3f( +0.5, +0.5, 0 )
             }
         gl.End()
         gl.SetTexture( 0 )
@@ -288,122 +290,107 @@ main :: proc() {
         }
         defer { print_alloc_stats( &tracking_allocator ) }
     }
+
+    // Load and prepare game data
     fmt.printfln( "[MEM] Floor: %.1f kb", size_of( floor )/1024.0 )
 
     if err := load_map(false); err != nil {
         panic( fmt.aprint("Error loading map %v", reflect.enum_name_from_value(err) ) )
     }
 
-    fmt.printfln( "%v", floor.tiles[7][0].edges[.North] )
-    fmt.printfln( "%v", floor.tiles[7][1].edges[.South] )
+    // Create game window
+    rl.SetConfigFlags( {.WINDOW_HIGHDPI, .MSAA_4X_HINT} )
+    rl.InitWindow( 1920, 1080, "Crawl" )
+    //rl.SetWindowSize( 3840-0, 2160-1 )
+    //rl.SetWindowPosition( 0, 0 )
+    rl.SetTargetFPS( 120 )
+    rl.DisableCursor()
 
-    when true { // Window and mainloop
-        rl.SetConfigFlags( {.WINDOW_HIGHDPI, .MSAA_4X_HINT} )
-        rl.InitWindow( 1920, 1080, "Crawl" )
-        //rl.SetWindowSize( 3840-0, 2160-1 )
-        //rl.SetWindowPosition( 0, 0 )
-        rl.SetTargetFPS( 120 )
-        rl.DisableCursor()
+    // Prepare assets
+    scale :f32 = 1.0
+    tile_size :Vec3 = {1.0,2.0,1.0} * scale
+    edge_size :Vec3 = tile_size * {1,1,1}
+    assets.edges[.Wall] = rl.LoadTexture( "../res/wall.png" )
 
-        // Assets
-        scale :f32 = 5.0
-        tile_size :Vec3 = {1.0,2.0,1.0} * scale
-        edge_size :Vec3 = tile_size * {1,1,0.1}
-        assets.edges[.Wall] = rl.LoadTexture( "../res/wall.png" )
-        /*
-        msize := Vec3{1.0,tile_height,0.1} * scale
-        mesh := rl.GenMeshCube( msize.x, msize.y, msize.z )
-        model := rl.LoadModelFromMesh( mesh )
-        rl.SetMaterialTexture( &model.materials[0], .ALBEDO, assets.edges[.Wall] )
-        // how do we add new materials? do we need to allocate?
-        */
+    // Initialize player, camera, and movement settings
+    player_pos := Vec2{ 0, 0 }
+    player_can_move := false
+    camera_can_fly := true
+    camera_can_rotate := true
+    camera_can_zoom := true
+    camera_speed_move : f32 = 10
+    camera_speed_rotate : f32 = 50.0
 
-        // Initialize player, camera, and movement settings
-        player_pos := Vec2{ 0, 0 }
-        player_can_move := false
-        camera_can_fly := true
-        camera_can_rotate := true
-        camera_can_zoom := true
+    camera : rl.Camera3D
+    camera.position = {0,scale*0.5,0}
+    camera.target = {0,scale*0.5,-5}
+    camera.up = {0,1,0}
+    camera.fovy = 90
+    camera.projection = .PERSPECTIVE
 
-        camera : rl.Camera3D
-        camera.position = {0,scale*0.5,0}
-        camera.target = {0,scale*0.5,-5}
-        camera.up = {0,1,0}
-        camera.fovy = 45
-        camera.projection = .PERSPECTIVE
-
-        for !rl.WindowShouldClose() {
-            dt := rl.GetFrameTime()
-            num_things := 0
-            { // Input, movement, camera
-                if rl.IsKeyPressed( .GRAVE ) {
-                    if player_can_move {
-                        player_can_move = false
-                        camera_can_fly = true
-                    } else {
-                        player_can_move = true
-                        camera_can_fly = false
-                    }
-                }
-
+    for !rl.WindowShouldClose() {
+        dt := rl.GetFrameTime()
+        num_things := 0
+        { // Input, movement, camera
+            if rl.IsKeyPressed( .GRAVE ) {
                 if player_can_move {
-                    if rl.IsKeyPressed( .W ) { player_pos.y += 1 }
-                    if rl.IsKeyPressed( .S ) { player_pos.y -= 1 }
-                    if rl.IsKeyPressed( .A ) { player_pos.x -= 1 }
-                    if rl.IsKeyPressed( .D ) { player_pos.x += 1 }
-                    if player_pos.x < 0 { player_pos.x = 0 }
-                    if player_pos.y < 0 { player_pos.y = 0 }
-                    if player_pos.x > (floor.width-1) { player_pos.x = (floor.width-1) }
-                    if player_pos.y > (floor.height-1) { player_pos.y = (floor.height-1) }
-                }
-
-                camera_rotate : Vec3 = { rl.GetMouseDelta().x*0.5, rl.GetMouseDelta().y*0.5, 0 } if camera_can_rotate else {}
-                camera_zoom : f32 = rl.GetMouseWheelMove()*-2.0 if camera_can_zoom else 0.0
-                camera_movement : Vec3 = {
-                    (rl.IsKeyDown(.W) ? 0.1 : 0.0) - (rl.IsKeyDown(.S) ? 0.1 : 0.0),
-                    (rl.IsKeyDown(.D) ? 0.1 : 0.0) - (rl.IsKeyDown(.A) ? 0.1 : 0.0),
-                    (rl.IsKeyDown(.Q) ? 0.1 : 0.0) - (rl.IsKeyDown(.E) ? 0.1 : 0.0)
-                    } if camera_can_fly else {}
-                rl.UpdateCameraPro( &camera, camera_movement, camera_rotate, camera_zoom )
-
-                if rl.IsKeyPressed( .R ) || player_can_move && (rl.IsKeyPressed( .W ) || rl.IsKeyPressed( .S ) || rl.IsKeyPressed( .A ) || rl.IsKeyPressed( .D )) {
-                    camera.position = { f32(player_pos.x), 0.5, f32(-player_pos.y) } * scale
-                    camera.target = camera.position + {0,0,-0.5}*scale
+                    player_can_move = false
+                    camera_can_fly = true
+                } else {
+                    player_can_move = true
+                    camera_can_fly = false
                 }
             }
 
-            rl.BeginDrawing()
-                rl.ClearBackground( rl.RAYWHITE )
-                rl.BeginMode3D( camera )
-                    for y in 0..<floor.height {
-                        for x in 0..<floor.width {
-                            // basic outline for tile
-                            tile := floor.tiles[x][y]
-                            tile_pos := Vec3{ f32(x), 0, f32(-y) } *scale
-                            rl.DrawCubeWires( tile_pos, tile_size.x, tile_size.y, tile_size.z, rl.GREEN )
-                            
-                            // edges
-                            for dir in Direction {
-                                edge := tile.edges[dir]
-                                if edge.type == .Open { continue }
+            if player_can_move {
+                if rl.IsKeyPressed( .W ) { player_pos.y += 1 }
+                if rl.IsKeyPressed( .S ) { player_pos.y -= 1 }
+                if rl.IsKeyPressed( .A ) { player_pos.x -= 1 }
+                if rl.IsKeyPressed( .D ) { player_pos.x += 1 }
+                if player_pos.x < 0 { player_pos.x = 0 }
+                if player_pos.y < 0 { player_pos.y = 0 }
+                if player_pos.x > (floor.width-1) { player_pos.x = (floor.width-1) }
+                if player_pos.y > (floor.height-1) { player_pos.y = (floor.height-1) }
+            }
+            camera_rotate : Vec3 = { rl.GetMouseDelta().x, rl.GetMouseDelta().y, 0 } *dt*camera_speed_rotate if camera_can_rotate else {}
+            camera_zoom : f32 = rl.GetMouseWheelMove()*-2.0 if camera_can_zoom else 0.0
+            camera_movement : Vec3 = {
+                (rl.IsKeyDown(.W) ? 1 : 0) - (rl.IsKeyDown(.S) ? 1 : 0),
+                (rl.IsKeyDown(.D) ? 1 : 0) - (rl.IsKeyDown(.A) ? 1 : 0),
+                (rl.IsKeyDown(.Q) ? 1 : 0) - (rl.IsKeyDown(.E) ? 1 : 0),
+                } * dt*camera_speed_move if camera_can_fly else {}
+            rl.UpdateCameraPro( &camera, camera_movement, camera_rotate, camera_zoom )
 
-                                edge_pos :Vec3 = ( {f32(x),0,f32(-y)} + 0.5*DirectionNormal[dir] ) * scale
-                                edge_rot_angle :f32 = 0 if dir == .North || dir == .South else 90
-                                edge_rot_axis := Vec3{0,1,0}
+            if rl.IsKeyPressed( .R ) || player_can_move && (rl.IsKeyPressed( .W ) || rl.IsKeyPressed( .S ) || rl.IsKeyPressed( .A ) || rl.IsKeyPressed( .D )) {
+                camera.position = { f32(player_pos.x), 0.5, f32(-player_pos.y) } * scale
+                camera.target = camera.position + {0,0,-0.5}*scale
+            }
+        }
 
-                                // Texture based on edge type and whether true nature has been revealed
-                                texture := assets.edges[ .Wall ]
-                                
-                                draw_quad( edge_pos, edge_size, edge_rot_axis, edge_rot_angle, DirectionNormal[dir], texture, rl.WHITE )
-                                //rl.DrawModelEx( model, edge_pos, edge_rot_axis, edge_rot_angle, 1, rl.WHITE )
-                            }
+        rl.BeginDrawing() // Render map
+            rl.ClearBackground( rl.RAYWHITE )
+            rl.BeginMode3D( camera )
+                for y in 0..<floor.height {
+                    for x in 0..<floor.width {
+                        tile := floor.tiles[x][y]
+                        for dir in Direction {
+                            edge := tile.edges[dir]
+                            if edge.type == .Open { continue }
+
+                            edge_pos :Vec3 = ( {f32(x),0,f32(-y)} + 0.5*DirectionNormal[dir] ) * scale
+                            edge_rot_angle :f32 = 0 if dir == .North || dir == .South else 90
+                            edge_rot_axis := Vec3{0,1,0}
+
+                            // Texture based on edge type and whether true nature has been revealed
+                            texture := assets.edges[ .Wall ]
+                            draw_quad( edge_pos, edge_size, edge_rot_axis, edge_rot_angle, DirectionNormal[dir], texture, rl.WHITE )
                         }
                     }
-                rl.EndMode3D()
-                rl.DrawText( rl.TextFormat( "FPS: %5.1f Map |%d,%d|", 1.0/dt, floor.width, floor.height ), 10, 10, 20, rl.MAROON )
-                rl.DrawText( rl.TextFormat( "%v", camera ), 10, 40, 20, rl.MAROON )
-                rl.DrawText( rl.TextFormat( "Player %v, Move? %v, Things %v", player_pos, player_can_move, num_things ), 10, 70, 20, rl.MAROON )
-            rl.EndDrawing()
-        }
+                }
+            rl.EndMode3D()
+            rl.DrawText( rl.TextFormat( "FPS: %5.1f Map |%d,%d|", 1.0/dt, floor.width, floor.height ), 10, 10, 20, rl.MAROON )
+            rl.DrawText( rl.TextFormat( "%v", camera ), 10, 40, 20, rl.MAROON )
+            rl.DrawText( rl.TextFormat( "Player %v, Move? %v, Things %v", player_pos, player_can_move, num_things ), 10, 70, 20, rl.MAROON )
+        rl.EndDrawing()
     }
 }
