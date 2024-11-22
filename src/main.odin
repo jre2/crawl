@@ -8,24 +8,23 @@ import "core:unicode/utf8"
 import rl "vendor:raylib"
 import gl "vendor:raylib/rlgl"
 
-/* Data Layout
-Dungeon consists of multiple Floors, each Floor is a 2D grid of Tiles plus some central registry info.
-Tiles have 4 Edges (not shared with adjacent tiles, to handle one way walls/doors easily by having adjacent edges differ) plus a pseudo Edge for the tile itself.
-Edges have a type and an event (trap, message, encounter, etc). The event has an argument (lock id, destination, encounter id, etc).
-The Tile's pseudo Edge can have upto 3 events. The 4 Edges can have only 1 event.
-The Floor has a central registry of Locks, Encounters, Messages, etc and their state (open/closed, triggered, etc)
-
+/*
+Data Layout:
+    Dungeon consists of multiple Floors, each Floor is a 2D grid of Tiles plus some central registry info.
+    Tiles have 4 Edges (not shared with adjacent tiles, to handle one way walls/doors easily by having adjacent edges differ) plus a pseudo Edge for the tile itself.
+    Edges have a type and an event (trap, message, encounter, etc). The event has an argument (lock id, destination, encounter id, etc).
+    The Tile's pseudo Edge can have upto 3 events. The 4 Edges can have only 1 event.
+    The Floor has a central registry of Locks, Encounters, Messages, etc and their state (open/closed, triggered, etc)
 Parse format
-Edge: {event_type} {edge_type} {event_arg}
-Tile:
-    {???} {event_type1} {event_arg1}
-    {???} {event_type2} {event_arg2}
-    {???} {event_type3} {event_arg3}
-FUTURE Tile:
-    {event_type1} {???} {event_arg1}
-    {event_type2} {tile_type} {event_arg2}
-    {event_type3} {???} {event_arg3}
-
+    Edge: {event_type} {edge_type} {event_arg}
+    Tile:
+        {???} {event_type1} {event_arg1}
+        {???} {event_type2} {event_arg2}
+        {???} {event_type3} {event_arg3}
+    FUTURE Tile:
+        {event_type1} {???} {event_arg1}
+        {event_type2} {tile_type} {event_arg2}
+        {event_type3} {???} {event_arg3}
 Known Issues
     - Parse tables default to nil, so unrecognized characters in map data are a silent failure
 */
@@ -124,6 +123,24 @@ Floor :: struct {
     locks: [MAX_NUM_LOCKS]b8,
     // messages, coordinates, encounters, etc
 }
+State :: struct {
+    // Visual design settings
+    scale: f32,
+    tile_size, edge_size, floor_size: Vec3,
+
+    // Camera
+    camera_speed_move, camera_speed_rotate: f32,
+    player_height: f32,
+    camera: rl.Camera3D,
+
+    // Input
+    player_can_move, camera_can_fly, camera_can_rotate, camera_can_zoom: b8,
+
+    // Game State
+    floor: Floor,
+    player_pos: Vec2,
+    debug_num_things: int,
+}
 Assets :: struct {
     edges: [EdgeType]rl.Texture2D,
     floor: rl.Texture2D,
@@ -156,8 +173,6 @@ ParserEventType : map[rune]EventType = {
     'f'= .FireDragon,
     'w'= .Werdna,
 }
-floor : Floor
-assets : Assets
 
 parse_tile :: proc( lines: []string, x, y: int ) -> (tile: Tile) {
     // Extract text data to intermediate struct to make things easier
@@ -166,7 +181,7 @@ parse_tile :: proc( lines: []string, x, y: int ) -> (tile: Tile) {
         center: [9]rune,
     }
     raw : TileRaw
-    H := floor.height -1
+    H := st.floor.height -1
     for i in 0..<3 {
         raw.edges[.North][i] = utf8.rune_at_pos( lines[ (H-y)*5 +0   ], x*5 +1+i )
         raw.edges[.South][i] = utf8.rune_at_pos( lines[ (H-y)*5 +4   ], x*5 +1+i )
@@ -197,7 +212,7 @@ parse_tile :: proc( lines: []string, x, y: int ) -> (tile: Tile) {
     return
 }
 
-load_map :: proc( debug:bool = false ) -> Error {
+load_map :: proc( floor: ^Floor, debug:bool = false ) -> Error {
     data, ok := os.read_entire_file( "../res/separate_edges.map" )
     if !ok { return .LoadMapRead }
     defer { delete( data ) }
@@ -215,6 +230,7 @@ load_map :: proc( debug:bool = false ) -> Error {
     if num_lines < 5 { return .LoadMapDimensions }
     num_cols := len( lines[0] )
     if num_lines % 5 != 0 || num_cols % 5 != 0 { return .LoadMapDimensions }
+    if num_cols > MAX_FLOOR_WIDTH*5 || num_lines > MAX_FLOOR_HEIGHT*5 { return .LoadMapDimensions }
 
     floor.width, floor.height = num_cols/5, num_lines/5
 
@@ -256,7 +272,7 @@ draw_quad :: proc( pos, size, rot:Vec3, rot_angle:f32, normal :Vec3, texture:rl.
             gl.Color4ub( tint.r, tint.g, tint.b, tint.a )
             gl.Normal3f( normal.x, normal.y, normal.z )
             // Determine which winding order to use based on normal
-            if normal.z < 0 || normal.x < 0 {
+            if normal.x < 0 || normal.y < 0 || normal.z < 0 {
                 // CCW winding order; lower left, lower right, upper right, upper left
                 gl.TexCoord2f( 0, 1 ); gl.Vertex3f( -0.5, -0.5, 0 )
                 gl.TexCoord2f( 1, 1 ); gl.Vertex3f( +0.5, -0.5, 0 )
@@ -274,6 +290,91 @@ draw_quad :: proc( pos, size, rot:Vec3, rot_angle:f32, normal :Vec3, texture:rl.
     gl.PopMatrix()
 }
 
+mainloop :: proc() {
+    using st
+    dt := rl.GetFrameTime()
+    num_things := 0
+
+    { // Input, movement, camera
+        if rl.IsKeyPressed( .GRAVE ) {
+            if player_can_move {
+                player_can_move = false
+                camera_can_fly = true
+            } else {
+                player_can_move = true
+                camera_can_fly = false
+            }
+        }
+
+        if player_can_move {
+            if rl.IsKeyPressed( .W ) { player_pos.y += 1 }
+            if rl.IsKeyPressed( .S ) { player_pos.y -= 1 }
+            if rl.IsKeyPressed( .A ) { player_pos.x -= 1 }
+            if rl.IsKeyPressed( .D ) { player_pos.x += 1 }
+            if player_pos.x < 0 { player_pos.x = 0 }
+            if player_pos.y < 0 { player_pos.y = 0 }
+            if player_pos.x > (floor.width-1) { player_pos.x = (floor.width-1) }
+            if player_pos.y > (floor.height-1) { player_pos.y = (floor.height-1) }
+        }
+        camera_rotate : Vec3 = { rl.GetMouseDelta().x, rl.GetMouseDelta().y, 0 } *dt*camera_speed_rotate if camera_can_rotate else {}
+        camera_zoom : f32 = rl.GetMouseWheelMove()*-2.0 if camera_can_zoom else 0.0
+        camera_movement : Vec3 = {
+            (rl.IsKeyDown(.W) ? 1 : 0) - (rl.IsKeyDown(.S) ? 1 : 0),
+            (rl.IsKeyDown(.D) ? 1 : 0) - (rl.IsKeyDown(.A) ? 1 : 0),
+            (rl.IsKeyDown(.Q) ? 1 : 0) - (rl.IsKeyDown(.E) ? 1 : 0),
+            } * dt*camera_speed_move if camera_can_fly else {}
+        rl.UpdateCameraPro( &camera, camera_movement, camera_rotate, camera_zoom )
+
+        if rl.IsKeyPressed( .R ) || player_can_move && (rl.IsKeyPressed( .W ) || rl.IsKeyPressed( .S ) || rl.IsKeyPressed( .A ) || rl.IsKeyPressed( .D )) {
+            camera.position = { f32(player_pos.x), 0, f32(-player_pos.y) } * scale + {0,player_height,0}
+            camera.target = camera.position + {0,0,-0.5}
+        }
+    }
+
+    rl.BeginDrawing() // Render map
+        rl.ClearBackground( rl.RAYWHITE )
+        rl.BeginMode3D( camera )
+            for y in 0..<floor.height {
+                for x in 0..<floor.width {
+                    tile := floor.tiles[x][y]
+                    tile_pos :Vec3 = { f32(x), 0, f32(-y) } * scale
+                    // Draw edges (walls, doors, etc)
+                    for dir in Direction {
+                        edge := tile.edges[dir]
+                        if edge.type == .Open { continue }
+
+                        edge_pos :Vec3 = tile_pos + 0.5*DirectionNormal[dir]*scale //TODO 0.5 should instead be half tile size
+                        edge_rot_angle :f32 = 0 if dir == .North || dir == .South else 90
+                        edge_rot_axis := Vec3{0,1,0}
+
+                        // Texture based on edge type and whether true nature has been revealed
+                        texture: rl.Texture
+                        switch edge.type {
+                            case .Open, .Wall, .Door, .Button: texture = assets.edges[ edge.type ]
+                            case .FalseWall: texture = assets.edges[ .Wall ] if edge.revealed else assets.edges[ edge.type ]
+                            case .InvisibleWall: texture = assets.edges[ .Open ] if edge.revealed else assets.edges[ edge.type ]
+                            case .SecretDoor: texture = assets.edges[ .Wall ] if edge.revealed else assets.edges[ edge.type ]
+                        }
+                        draw_quad( edge_pos, edge_size, edge_rot_axis, edge_rot_angle, DirectionNormal[dir], texture, rl.WHITE )
+                    }
+                    // Draw floor
+                    floor_pos :Vec3 = tile_pos + {0,-0.5*tile_size.y,0}
+                    draw_quad( floor_pos, floor_size, {-1,0,0}, 90, {0,-1,0}, assets.floor, rl.BROWN )
+                    // Draw ceiling
+                    ceiling_pos :Vec3 = tile_pos + {0,+0.5*tile_size.y,0}
+                    draw_quad( ceiling_pos, floor_size, {+1,0,0}, 90, {0,-1,0}, assets.ceiling, rl.DARKBROWN )
+                }
+            }
+        rl.EndMode3D()
+        rl.DrawText( rl.TextFormat( "FPS: %5.1f Map |%d,%d|", 1.0/dt, floor.width, floor.height ), 10, 10, 20, rl.MAROON )
+        rl.DrawText( rl.TextFormat( "%v", camera ), 10, 40, 20, rl.MAROON )
+        rl.DrawText( rl.TextFormat( "Player %v, Move? %v, Things %v", player_pos, player_can_move, debug_num_things ), 10, 70, 20, rl.MAROON )
+    rl.EndDrawing()
+}
+
+assets : Assets
+st : State
+
 main :: proc() {
     when DEBUG_MEMORY {
         tracking_allocator : mem.Tracking_Allocator
@@ -290,11 +391,34 @@ main :: proc() {
         }
         defer { print_alloc_stats( &tracking_allocator ) }
     }
+    fmt.printfln( "[MEM] State: %.1f kb", size_of( State )/1024.0 )
 
-    // Load and prepare game data
-    fmt.printfln( "[MEM] Floor: %.1f kb", size_of( floor )/1024.0 )
+    // Initialize client and game state
+    st.scale = 1.0
+    st.tile_size = {1.0,1.0,1.0} * st.scale
+    st.edge_size = st.tile_size * {1,1,1}
+    st.floor_size = st.tile_size * {1,1,1}
 
-    if err := load_map(false); err != nil {
+    st.camera_speed_move = 10
+    st.camera_speed_rotate = 50.0
+    st.player_height = 0.0 * st.scale
+
+    st.camera.position = {0,st.player_height,0}
+    st.camera.target = st.camera.position + {0,0,-0.5}
+    st.camera.up = {0,1,0}
+    st.camera.fovy = 90
+    st.camera.projection = .PERSPECTIVE
+
+    st.player_can_move = false
+    st.camera_can_fly = true
+    st.camera_can_rotate = true
+    st.camera_can_zoom = true
+
+    st.player_pos = { 0, 0 }
+    st.debug_num_things = 0
+
+    // Load dungeon floor data
+    if err := load_map( &st.floor, false ); err != nil {
         panic( fmt.aprint("Error loading map %v", reflect.enum_name_from_value(err) ) )
     }
 
@@ -306,113 +430,19 @@ main :: proc() {
     rl.SetTargetFPS( 120 )
     rl.DisableCursor()
 
-    // Prepare assets
-    scale :f32 = 1.0
-    tile_size :Vec3 = {1.0,1.0,1.0} * scale
-    edge_size :Vec3 = tile_size * {1,1,1}
+    // Load assets
     assets.edges[.Open] = rl.LoadTexture( "../res/missing.png" )
     assets.edges[.Wall] = rl.LoadTexture( "../res/wall.png" )
     assets.edges[.Door] = rl.LoadTexture( "../res/door.png" )
     assets.edges[.FalseWall] = rl.LoadTexture( "../res/missing.png" )
-    assets.edges[.InvisibleWall] = rl.LoadTexture( "../res/missing.png" )
+    assets.edges[.InvisibleWall] = rl.LoadTexture( "../res/invisible_wall.png" )
     assets.edges[.SecretDoor] = rl.LoadTexture( "../res/missing.png" )
     assets.edges[.Button] = rl.LoadTexture( "../res/missing.png" )
-    assets.floor = rl.LoadTexture( "../res/missing.png" )
-    assets.ceiling = rl.LoadTexture( "../res/missing.png" )
+    assets.floor = rl.LoadTexture( "../res/floor.png" )
+    assets.ceiling = rl.LoadTexture( "../res/ceiling.png" )
 
-    // Initialize player, camera, and movement settings
-    player_pos := Vec2{ 0, 0 }
-    player_can_move := false
-    camera_can_fly := true
-    camera_can_rotate := true
-    camera_can_zoom := true
-    camera_speed_move : f32 = 10
-    camera_speed_rotate : f32 = 50.0
-
-    camera : rl.Camera3D
-    player_height := 0.10*scale
-    camera.position = {0,player_height,0}
-    camera.target = camera.position + {0,0,-0.5}
-    camera.up = {0,1,0}
-    camera.fovy = 45
-    camera.projection = .PERSPECTIVE
-
+    // Main game loop
     for !rl.WindowShouldClose() {
-        dt := rl.GetFrameTime()
-        num_things := 0
-        { // Input, movement, camera
-            if rl.IsKeyPressed( .GRAVE ) {
-                if player_can_move {
-                    player_can_move = false
-                    camera_can_fly = true
-                } else {
-                    player_can_move = true
-                    camera_can_fly = false
-                }
-            }
-
-            if player_can_move {
-                if rl.IsKeyPressed( .W ) { player_pos.y += 1 }
-                if rl.IsKeyPressed( .S ) { player_pos.y -= 1 }
-                if rl.IsKeyPressed( .A ) { player_pos.x -= 1 }
-                if rl.IsKeyPressed( .D ) { player_pos.x += 1 }
-                if player_pos.x < 0 { player_pos.x = 0 }
-                if player_pos.y < 0 { player_pos.y = 0 }
-                if player_pos.x > (floor.width-1) { player_pos.x = (floor.width-1) }
-                if player_pos.y > (floor.height-1) { player_pos.y = (floor.height-1) }
-            }
-            camera_rotate : Vec3 = { rl.GetMouseDelta().x, rl.GetMouseDelta().y, 0 } *dt*camera_speed_rotate if camera_can_rotate else {}
-            camera_zoom : f32 = rl.GetMouseWheelMove()*-2.0 if camera_can_zoom else 0.0
-            camera_movement : Vec3 = {
-                (rl.IsKeyDown(.W) ? 1 : 0) - (rl.IsKeyDown(.S) ? 1 : 0),
-                (rl.IsKeyDown(.D) ? 1 : 0) - (rl.IsKeyDown(.A) ? 1 : 0),
-                (rl.IsKeyDown(.Q) ? 1 : 0) - (rl.IsKeyDown(.E) ? 1 : 0),
-                } * dt*camera_speed_move if camera_can_fly else {}
-            rl.UpdateCameraPro( &camera, camera_movement, camera_rotate, camera_zoom )
-
-            if rl.IsKeyPressed( .R ) || player_can_move && (rl.IsKeyPressed( .W ) || rl.IsKeyPressed( .S ) || rl.IsKeyPressed( .A ) || rl.IsKeyPressed( .D )) {
-                camera.position = { f32(player_pos.x), player_height, f32(-player_pos.y) } * scale
-                camera.target = camera.position + {0,0,-0.5}*scale
-            }
-        }
-
-        rl.BeginDrawing() // Render map
-            rl.ClearBackground( rl.RAYWHITE )
-            rl.BeginMode3D( camera )
-                for y in 0..<floor.height {
-                    for x in 0..<floor.width {
-                        tile := floor.tiles[x][y]
-                        // Draw edges (walls, doors, etc)
-                        for dir in Direction {
-                            edge := tile.edges[dir]
-                            if edge.type == .Open { continue }
-
-                            edge_pos :Vec3 = ( {f32(x),0,f32(-y)} + 0.5*DirectionNormal[dir] ) * scale
-                            edge_rot_angle :f32 = 0 if dir == .North || dir == .South else 90
-                            edge_rot_axis := Vec3{0,1,0}
-
-                            // Texture based on edge type and whether true nature has been revealed
-                            texture: rl.Texture
-                            switch edge.type {
-                                case .Open, .Wall, .Door, .Button: texture = assets.edges[ edge.type ]
-                                case .FalseWall: texture = assets.edges[ .Wall ] if edge.revealed else assets.edges[ edge.type ]
-                                case .InvisibleWall: texture = assets.edges[ .Open ] if edge.revealed else assets.edges[ edge.type ]
-                                case .SecretDoor: texture = assets.edges[ .Wall ] if edge.revealed else assets.edges[ edge.type ]
-                            }
-                            //texture = assets.edges[ .Door ]
-                            draw_quad( edge_pos, edge_size, edge_rot_axis, edge_rot_angle, DirectionNormal[dir], texture, rl.WHITE )
-                        }
-                        // Draw floor
-                        floor_pos :Vec3 = { f32(x), -0.5*tile_size.y, f32(-y) } * scale
-                        draw_quad( floor_pos, {1,1,1}, {0,1,0}, 0, {0,1,0}, assets.floor, rl.WHITE )
-                        floor_pos.y -= 0.01
-                        rl.DrawPlane( floor_pos, { 1, 1 }, rl.BROWN )
-                    }
-                }
-            rl.EndMode3D()
-            rl.DrawText( rl.TextFormat( "FPS: %5.1f Map |%d,%d|", 1.0/dt, floor.width, floor.height ), 10, 10, 20, rl.MAROON )
-            rl.DrawText( rl.TextFormat( "%v", camera ), 10, 40, 20, rl.MAROON )
-            rl.DrawText( rl.TextFormat( "Player %v, Move? %v, Things %v", player_pos, player_can_move, num_things ), 10, 70, 20, rl.MAROON )
-        rl.EndDrawing()
+        mainloop()
     }
 }
