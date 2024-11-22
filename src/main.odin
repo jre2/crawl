@@ -257,17 +257,17 @@ draw_quad :: proc( pos, size, rot:Vec3, rot_angle:f32, normal :Vec3, texture:rl.
             gl.Normal3f( normal.x, normal.y, normal.z )
             // Determine which winding order to use based on normal
             if normal.z < 0 || normal.x < 0 {
-                // Clockwide winding order; lower left, lower right, upper right, upper left
-                gl.TexCoord2f( 0, 0 ); gl.Vertex3f( -0.5, -0.5, 0 )
-                gl.TexCoord2f( 1, 0 ); gl.Vertex3f( +0.5, -0.5, 0 )
-                gl.TexCoord2f( 1, 1 ); gl.Vertex3f( +0.5, +0.5, 0 )
-                gl.TexCoord2f( 0, 1 ); gl.Vertex3f( -0.5, +0.5, 0 )
+                // CCW winding order; lower left, lower right, upper right, upper left
+                gl.TexCoord2f( 0, 1 ); gl.Vertex3f( -0.5, -0.5, 0 )
+                gl.TexCoord2f( 1, 1 ); gl.Vertex3f( +0.5, -0.5, 0 )
+                gl.TexCoord2f( 1, 0 ); gl.Vertex3f( +0.5, +0.5, 0 )
+                gl.TexCoord2f( 0, 0 ); gl.Vertex3f( -0.5, +0.5, 0 )
             } else {
-                // Counter-clockwise winding order; bottom right, bottom left, top left, top right
-                gl.TexCoord2f( 1, 0 ); gl.Vertex3f( +0.5, -0.5, 0 )
-                gl.TexCoord2f( 0, 0 ); gl.Vertex3f( -0.5, -0.5, 0 )
-                gl.TexCoord2f( 0, 1 ); gl.Vertex3f( -0.5, +0.5, 0 )
-                gl.TexCoord2f( 1, 1 ); gl.Vertex3f( +0.5, +0.5, 0 )
+                // CW winding order; bottom right, bottom left, top left, top right
+                gl.TexCoord2f( 1, 1 ); gl.Vertex3f( -0.5, -0.5, 0 )
+                gl.TexCoord2f( 1, 0 ); gl.Vertex3f( -0.5, +0.5, 0 )
+                gl.TexCoord2f( 0, 0 ); gl.Vertex3f( +0.5, +0.5, 0 )
+                gl.TexCoord2f( 0, 1 ); gl.Vertex3f( +0.5, -0.5, 0 )
             }
         gl.End()
         gl.SetTexture( 0 )
@@ -308,9 +308,17 @@ main :: proc() {
 
     // Prepare assets
     scale :f32 = 1.0
-    tile_size :Vec3 = {1.0,2.0,1.0} * scale
+    tile_size :Vec3 = {1.0,1.0,1.0} * scale
     edge_size :Vec3 = tile_size * {1,1,1}
+    assets.edges[.Open] = rl.LoadTexture( "../res/missing.png" )
     assets.edges[.Wall] = rl.LoadTexture( "../res/wall.png" )
+    assets.edges[.Door] = rl.LoadTexture( "../res/door.png" )
+    assets.edges[.FalseWall] = rl.LoadTexture( "../res/missing.png" )
+    assets.edges[.InvisibleWall] = rl.LoadTexture( "../res/missing.png" )
+    assets.edges[.SecretDoor] = rl.LoadTexture( "../res/missing.png" )
+    assets.edges[.Button] = rl.LoadTexture( "../res/missing.png" )
+    assets.floor = rl.LoadTexture( "../res/missing.png" )
+    assets.ceiling = rl.LoadTexture( "../res/missing.png" )
 
     // Initialize player, camera, and movement settings
     player_pos := Vec2{ 0, 0 }
@@ -322,10 +330,11 @@ main :: proc() {
     camera_speed_rotate : f32 = 50.0
 
     camera : rl.Camera3D
-    camera.position = {0,scale*0.5,0}
-    camera.target = {0,scale*0.5,-5}
+    player_height := 0.10*scale
+    camera.position = {0,player_height,0}
+    camera.target = camera.position + {0,0,-0.5}
     camera.up = {0,1,0}
-    camera.fovy = 90
+    camera.fovy = 45
     camera.projection = .PERSPECTIVE
 
     for !rl.WindowShouldClose() {
@@ -362,7 +371,7 @@ main :: proc() {
             rl.UpdateCameraPro( &camera, camera_movement, camera_rotate, camera_zoom )
 
             if rl.IsKeyPressed( .R ) || player_can_move && (rl.IsKeyPressed( .W ) || rl.IsKeyPressed( .S ) || rl.IsKeyPressed( .A ) || rl.IsKeyPressed( .D )) {
-                camera.position = { f32(player_pos.x), 0.5, f32(-player_pos.y) } * scale
+                camera.position = { f32(player_pos.x), player_height, f32(-player_pos.y) } * scale
                 camera.target = camera.position + {0,0,-0.5}*scale
             }
         }
@@ -373,6 +382,7 @@ main :: proc() {
                 for y in 0..<floor.height {
                     for x in 0..<floor.width {
                         tile := floor.tiles[x][y]
+                        // Draw edges (walls, doors, etc)
                         for dir in Direction {
                             edge := tile.edges[dir]
                             if edge.type == .Open { continue }
@@ -382,9 +392,21 @@ main :: proc() {
                             edge_rot_axis := Vec3{0,1,0}
 
                             // Texture based on edge type and whether true nature has been revealed
-                            texture := assets.edges[ .Wall ]
+                            texture: rl.Texture
+                            switch edge.type {
+                                case .Open, .Wall, .Door, .Button: texture = assets.edges[ edge.type ]
+                                case .FalseWall: texture = assets.edges[ .Wall ] if edge.revealed else assets.edges[ edge.type ]
+                                case .InvisibleWall: texture = assets.edges[ .Open ] if edge.revealed else assets.edges[ edge.type ]
+                                case .SecretDoor: texture = assets.edges[ .Wall ] if edge.revealed else assets.edges[ edge.type ]
+                            }
+                            //texture = assets.edges[ .Door ]
                             draw_quad( edge_pos, edge_size, edge_rot_axis, edge_rot_angle, DirectionNormal[dir], texture, rl.WHITE )
                         }
+                        // Draw floor
+                        floor_pos :Vec3 = { f32(x), -0.5*tile_size.y, f32(-y) } * scale
+                        draw_quad( floor_pos, {1,1,1}, {0,1,0}, 0, {0,1,0}, assets.floor, rl.WHITE )
+                        floor_pos.y -= 0.01
+                        rl.DrawPlane( floor_pos, { 1, 1 }, rl.BROWN )
                     }
                 }
             rl.EndMode3D()
