@@ -431,13 +431,13 @@ main :: proc() {
     rl.DisableCursor()
 
     // Load assets
-    assets.edges[.Open] = rl.LoadTexture( "../res/missing.png" )
+    assets.edges[.Open] = rl.LoadTexture( "../res/open.png" )
     assets.edges[.Wall] = rl.LoadTexture( "../res/wall.png" )
     assets.edges[.Door] = rl.LoadTexture( "../res/door.png" )
-    assets.edges[.FalseWall] = rl.LoadTexture( "../res/missing.png" )
+    assets.edges[.FalseWall] = rl.LoadTexture( "../res/false_wall.png" )
     assets.edges[.InvisibleWall] = rl.LoadTexture( "../res/invisible_wall.png" )
-    assets.edges[.SecretDoor] = rl.LoadTexture( "../res/missing.png" )
-    assets.edges[.Button] = rl.LoadTexture( "../res/missing.png" )
+    assets.edges[.SecretDoor] = rl.LoadTexture( "../res/secret_door.png" )
+    assets.edges[.Button] = rl.LoadTexture( "../res/button.png" )
     assets.floor = rl.LoadTexture( "../res/floor.png" )
     assets.ceiling = rl.LoadTexture( "../res/ceiling.png" )
 
