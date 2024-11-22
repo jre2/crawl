@@ -1,0 +1,169 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "odin release build",
+			"type": "process",
+			"command": "odin",
+			"args": [
+				"build",
+				"../src",
+				"-resource:../doc/odin.rc",
+				"-collection:libs=../shared",
+				"-out:${workspaceFolderBasename}.exe"
+			],
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": false
+			},
+			"options": {
+				"cwd": "${workspaceFolder}/bin"
+			}
+		},
+		{
+			"label": "odin debug build",
+			"type": "process",
+			"command": "odin",
+			"args": [
+				"build",
+				"../src",
+				"-resource:../doc/odin.rc",
+				"-collection:libs=../shared",
+				"-out:${workspaceFolderBasename}.exe",
+				"-debug"
+			],
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": false
+			},
+			"options": {
+				"cwd": "${workspaceFolder}/bin"
+			}
+		},
+		{
+			"label": "odin run",
+			"type": "process",
+			"command": "odin",
+			"args": [
+				"run",
+				"../src",
+				"-resource:../doc/odin.rc",
+				"-collection:libs=../shared",
+				"-out:${workspaceFolderBasename}.exe",
+				"-debug"
+			],
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": "**/*.odin"
+			},
+			"options": {
+				"cwd": "${workspaceFolder}/bin"
+			}
+		},
+		{
+			"label": "odin test",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"test",
+				"../src",
+				"-resource:../doc/odin.rc",
+				"-collection:libs=../shared",
+				"-out:${workspaceFolderBasename}.exe",
+				"-debug"
+			],
+			"problemMatcher": [],
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			},
+			"options": {
+				"cwd": "${workspaceFolder}/bin"
+			}
+		},
+		{
+			"label": "odin check",
+			"type": "process",
+			"command": "odin",
+			"args": [
+				"check",
+				"../src",
+				"-resource:../doc/odin.rc",
+				"-collection:libs=../shared",
+				"-out:${workspaceFolderBasename}.exe",
+				"-debug"
+			],
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": false
+			},
+			"options": {
+				"cwd": "${workspaceFolder}/bin"
+			}
+		},
+		{
+			"label": "odin strip semicolon",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"strip-semicolon",
+				"../src",
+				"-resource:../doc/odin.rc",
+				"-collection:libs=../shared",
+				"-out:${workspaceFolderBasename}.exe",
+				"-no-entry-point"
+			],
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": false
+			},
+			"options": {
+				"cwd": "${workspaceFolder}/bin"
+			}
+		},
+		{
+			"label": "odin doc",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"doc",
+				"../src",
+				"-resource:../doc/odin.rc",
+				"-collection:libs=../shared",
+				"-out:${workspaceFolderBasename}.exe",
+				">",
+				"${fileDirnameBasename}.txt"
+			],
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": false
+			},
+			"options": {
+				"cwd": "${workspaceFolder}/bin"
+			}
+		},
+		{
+			"label": "format",
+			"type": "process",
+			"command": "c:/home/src/ols/odinfmt.exe",
+			"args": [
+				"-w",
+				"${workspaceFolder}/${relativeFile}"
+			],
+			"problemMatcher": [],
+			"group": {
+				"kind": "none",
+				"isDefault": false
+			},
+			"options": {
+				"cwd": "${workspaceFolder}/src"
+			}
+		}
+	]
+}

@@ -1,0 +1,30 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Odin Debug Launch",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "preLaunchTask": "odin debug build", // This should match the label of your debug build task
+            "program": "${workspaceFolder}/bin/${workspaceFolderBasename}.exe",
+            "args": [],
+            "environment": [{"name": "config", "value": "Debug"}],
+            "cwd": "${workspaceFolder}/bin",
+            "stopAtEntry": false,
+            "console": "integratedTerminal",
+        }
+        ],
+        "cwd": "${workspaceFolder}/bin",
+        "stopAtEntry": false,
+        "console": "integratedTerminal",
+        //"console": "externalTerminal",
+        //"console": "internalConsole",
+        //"internalConsoleOptions": "openOnSessionStart",
+        //"debugOptions": ["RedirectOutput"],
+        //"postDebugTask": "close terminal"
+        }
+      ]
+}

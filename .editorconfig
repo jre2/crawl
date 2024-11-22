@@ -1,0 +1,31 @@
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 200
+
+[*.odin]
+max_line_length = off
+indent_style = space
+
+[*{.h,*.cpp}]
+max_line_length = off
+
+[*.{md,txt,log,bat}]
+max_line_length = off
+indent_style = space
+
+[*.{json,code-workspace}]
+indent_style = space
+
+[*.{xml,csproj,props,targets,recipe,shproj,projitems}]
+indent_style = space
+insert_final_newline = false
+
+[*.hlsl]
+max_line_length = off
+indent_style = space
