@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 package main
 import "core:fmt"
 import "core:mem"
@@ -165,7 +166,7 @@ ParserEventType : map[rune]EventType = {
     'M'= .DispelMagic,
 
     'T'= .Treasure,
-    
+
     'E'= .Encounter,
     'e'= .RandomEasy,
     'm'= .RandomMedium,
